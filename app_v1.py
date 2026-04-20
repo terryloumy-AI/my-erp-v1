@@ -1,22 +1,37 @@
 import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
+import matplotlib.font_manager as fm
 from compliance_check import ComplianceChecker
 import shopify_engine
-import platform # 這是新加的：用來判斷電腦系統
+import platform
 
 # 頁面配置
 st.set_page_config(page_title="A's 大健康 ERP 1.0", layout="wide")
 
-# --- 💡 修正亂碼的核心設定 ---
+# --- 🚀 修正中文亂碼：終極全自動方案 ---
 def set_chinese_font():
-    if platform.system() == "Windows":
-        # 如果在你自己的電腦跑，用微軟正黑體
-        plt.rcParams['font.sans-serif'] = ['Microsoft JhengHei']
-    else:
-        # 如果在雲端伺服器跑，用 Linux 通用字體
-        plt.rcParams['font.sans-serif'] = ['DejaVu Sans', 'Liberation Sans', 'Arial', 'sans-serif']
+    # 1. 先列出所有可能存在的中文字體名稱
+    target_fonts = [
+        'Microsoft JhengHei', 'SimSun', 'Arial Unicode MS', 
+        'Noto Sans CJK JP', 'Noto Sans CJK TC', 'WenQuanYi Micro Hei',
+        'DejaVu Sans', 'Liberation Sans'
+    ]
     
+    # 2. 自動在系統中搜尋可用的字體
+    available_fonts = [f.name for f in fm.fontManager.ttflist]
+    matched_font = None
+    for f in target_fonts:
+        if f in available_fonts:
+            matched_font = f
+            break
+            
+    # 3. 套用字體設定
+    if matched_font:
+        plt.rcParams['font.sans-serif'] = [matched_font]
+    else:
+        plt.rcParams['font.sans-serif'] = ['sans-serif']
+        
     plt.rcParams['axes.unicode_minus'] = False # 解決負號亂碼
 
 set_chinese_font()
@@ -53,7 +68,9 @@ try:
     
     col1, col2 = st.columns([1, 2])
     with col1:
-        target_month = st.selectbox("選擇查看月份", sorted(sales_df['月份'].unique()))
+        # 確保月份排序正確
+        month_list = sorted(sales_df['月份'].unique())
+        target_month = st.selectbox("選擇查看月份", month_list)
     
     month_data = sales_df[sales_df['月份'] == target_month]
     
@@ -63,20 +80,23 @@ try:
         
         # 建立圖表
         fig, ax = plt.subplots(figsize=(10, 6))
+        # 這裡強制設定 fontname 確保圖表讀取中文
         chart_data.plot(kind='barh', ax=ax, color='#4CAF50')
         
-        # 💡 新加這行：確保字體不會被切到，顯示更整齊
+        # 💡 微調標籤，確保顯示漂亮
+        ax.set_ylabel("")
+        ax.set_xlabel("銷售數量")
         plt.tight_layout() 
         
         st.pyplot(fig)
-except:
-    st.write("等待數據載入...")
+except Exception as e:
+    st.write(f"等待數據載入... (Error: {e})")
 
 st.markdown("---")
 
 # --- 分區三：合規掃描 ---
 st.header("🔍 文案合規檢查器")
-input_text = st.text_area("請貼入產品描述 (中英文皆可)", placeholder="例如：這款產品能治癒糖尿病，100%有效...")
+input_text = st.text_area("請貼入產品描述 (中英文皆可)", placeholder="例如：這款產品能治癒糖尿病，100%有效...", height=150)
 
 if st.button("立即掃描"):
     if input_text:
@@ -84,8 +104,8 @@ if st.button("立即掃描"):
         if not red and not yellow:
             st.success("✅ 通過！未發現明顯違規字眼。")
         else:
-            if red: st.error(f"❌ 嚴重違規：{', '.join(red)}")
-            if yellow: st.warning(f"⚠️ 建議修改：{', '.join(yellow)}")
+            if red: st.error(f"❌ 嚴重違規（醫療效果字眼）：{', '.join(red)}")
+            if yellow: st.warning(f"⚠️ 建議修改（誇大詞彙）：{', '.join(yellow)}")
     else:
         st.info("請輸入文字後再點擊掃描。")
 
