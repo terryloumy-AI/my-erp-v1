@@ -3,10 +3,23 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from compliance_check import ComplianceChecker
 import shopify_engine
+import platform # 這是新加的：用來判斷電腦系統
 
 # 頁面配置
 st.set_page_config(page_title="A's 大健康 ERP 1.0", layout="wide")
-plt.rcParams['font.sans-serif'] = ['Microsoft JhengHei'] # 修正豆腐塊
+
+# --- 💡 修正亂碼的核心設定 ---
+def set_chinese_font():
+    if platform.system() == "Windows":
+        # 如果在你自己的電腦跑，用微軟正黑體
+        plt.rcParams['font.sans-serif'] = ['Microsoft JhengHei']
+    else:
+        # 如果在雲端伺服器跑，用 Linux 通用字體
+        plt.rcParams['font.sans-serif'] = ['DejaVu Sans', 'Liberation Sans', 'Arial', 'sans-serif']
+    
+    plt.rcParams['axes.unicode_minus'] = False # 解決負號亂碼
+
+set_chinese_font()
 
 # 初始化數據
 if st.sidebar.button("📦 初始化/重新整理數據"):
@@ -47,8 +60,14 @@ try:
     with col2:
         st.subheader(f"{target_month} 銷售排行")
         chart_data = month_data.groupby("產品名稱")["數量"].sum().sort_values()
-        fig, ax = plt.subplots()
+        
+        # 建立圖表
+        fig, ax = plt.subplots(figsize=(10, 6))
         chart_data.plot(kind='barh', ax=ax, color='#4CAF50')
+        
+        # 💡 新加這行：確保字體不會被切到，顯示更整齊
+        plt.tight_layout() 
+        
         st.pyplot(fig)
 except:
     st.write("等待數據載入...")
