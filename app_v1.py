@@ -11,12 +11,9 @@ st.set_page_config(page_title="A's 大健康 ERP 1.0", layout="wide")
 
 # --- 🎯 終極修正：強制載入 A 的字體檔 ---
 def load_custom_font():
-    # 這是你在 GitHub 上顯示的完整檔名
     font_file = "font.ttc.otf"
-    
     if os.path.exists(font_file):
         try:
-            # 強制註冊字體
             fe = fm.FontEntry(fname=font_file, name='MyCustomFont')
             fm.fontManager.ttflist.insert(0, fe)
             plt.rcParams['font.family'] = fe.name
@@ -24,14 +21,15 @@ def load_custom_font():
         except Exception as e:
             st.sidebar.error(f"字體加載出錯: {e}")
     else:
-        st.sidebar.warning("⚠️ 找不到字體檔，請確認檔名是否為 font.ttc.otf")
+        plt.rcParams['font.sans-serif'] = ['DejaVu Sans', 'Arial']
 
 load_custom_font()
 
 # --- 側邊欄：功能鍵 ---
-if st.sidebar.button("📦 初始化/重新整理數據"):
+if st.sidebar.button("📦 重新初始化數據"):
     msg = shopify_engine.generate_mock_data()
     st.sidebar.success(msg)
+    st.rerun() # 強制刷新頁面
 
 st.sidebar.markdown("---")
 st.sidebar.subheader("🔗 真實數據連線")
@@ -44,6 +42,10 @@ st.title("🚀 跨境大健康智能管理系統 1.0")
 
 checker = ComplianceChecker()
 
+# --- 數據檢查機制 (防止出現空畫面) ---
+if not os.path.exists("inventory.csv"):
+    shopify_engine.generate_mock_data()
+
 # --- 分區一：庫存預警 ---
 st.header("📊 全球庫存預警")
 try:
@@ -51,8 +53,8 @@ try:
     def style_stock(row):
         return ['background-color: #ffcccc' if row['現貨庫存'] < row['預警門檻'] else '' for _ in row]
     st.dataframe(inv_df.style.apply(style_stock, axis=1), use_container_width=True)
-except:
-    st.warning("請先點擊左側「初始化數據」。")
+except Exception as e:
+    st.error(f"數據讀取失敗，請點擊左側初始化。({e})")
 
 st.markdown("---")
 
@@ -72,13 +74,12 @@ try:
     fig, ax = plt.subplots(figsize=(10, 6))
     chart_data.plot(kind='barh', ax=ax, color='#4CAF50')
     
-    # 強制在繪圖時再次確認字體
     ax.set_ylabel("")
     ax.set_xlabel("銷售數量")
     plt.tight_layout()
     st.pyplot(fig)
 except Exception as e:
-    st.write("等待數據載入中...")
+    st.info("📊 正在準備銷售圖表，請點擊左側「重新初始化數據」。")
 
 st.markdown("---")
 
