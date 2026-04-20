@@ -1,7 +1,6 @@
 import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
-import matplotlib.font_manager as fm
 import os
 import numpy as np
 from datetime import datetime, timedelta
@@ -9,51 +8,47 @@ from datetime import datetime, timedelta
 # 頁面配置
 st.set_page_config(page_title="A's 大健康 ERP 1.0", layout="wide")
 
-# --- 🚀 修正：放棄損毀檔案，使用系統內建方案 ---
-def set_safe_font():
-    # 這裡我們不再讀取 font.ttc.otf，改用 Linux 內建字體
-    # 如果是雲端環境，通常會自動尋找替代字體
-    plt.rcParams['font.sans-serif'] = ['DejaVu Sans', 'Arial', 'sans-serif']
-    plt.rcParams['axes.unicode_minus'] = False
-
-set_safe_font()
+# --- 🚀 終極安全字體設定：完全清空自定義設定 ---
+plt.rcdefaults() # 恢復所有預設值
+plt.rcParams['font.sans-serif'] = ['DejaVu Sans', 'Arial']
+plt.rcParams['axes.unicode_minus'] = False
 
 # --- 數據生成功能 ---
 def force_init_data():
-    # 為了防止亂碼，圖表標籤我們暫時改用英文/拼音縮寫
-    # 這樣你的 1.3M 目標才不會被「方塊」擋住
+    # 圖表標籤全英文，確保不崩潰
     products_en = ["NMN", "Curcumin", "Blueberry", "Lutein", "FishOil", "Sleep", "Probiotics", "Q10", "UroComfort", "BloodClean"]
     products_cn = ["NMN", "薑黃素", "藍莓素", "葉黃素", "深海魚油", "睡眠丸", "益生菌", "Q10", "尿適通", "血淨"]
     
-    # 1. 生成庫存數據 (表格顯示中文沒問題)
     inv_data = {
-        "產品名稱": products_cn,
-        "現貨庫存": np.random.randint(20, 150, len(products_cn)),
-        "在途貨物": np.random.randint(10, 100, len(products_cn)),
-        "預警門檻": [50] * len(products_cn)
+        "Product": products_en,
+        "Name_CN": products_cn,
+        "Stock": np.random.randint(20, 150, len(products_en)),
+        "Incoming": np.random.randint(10, 100, len(products_en)),
+        "Threshold": [50] * len(products_en)
     }
     pd.DataFrame(inv_data).to_csv("inventory.csv", index=False)
     
-    # 2. 生成銷售數據 (圖表使用英文避免崩潰)
     sales_list = []
     start_date = datetime.now() - timedelta(days=90)
     for i in range(200):
         date = start_date + timedelta(days=np.random.randint(0, 90))
         sales_list.append({
-            "日期": date.strftime("%Y-%m-%d"),
-            "產品名稱": np.random.choice(products_en),
-            "數量": np.random.randint(1, 10)
+            "Date": date.strftime("%Y-%m-%d"),
+            "Product": np.random.choice(products_en),
+            "Qty": np.random.randint(1, 10)
         })
     pd.DataFrame(sales_list).to_csv("all_orders_90days.csv", index=False)
     return "✅ 數據初始化成功！"
 
 # --- 側邊欄 ---
-st.sidebar.button("📦 重新初始化數據", on_click=force_init_data)
+if st.sidebar.button("📦 重新初始化數據"):
+    force_init_data()
+    st.rerun()
 
 # --- 主畫面 ---
 st.title("🚀 跨境大健康智能管理系統 1.0")
 
-# --- 分區一：庫存預警 ---
+# --- 分區一：庫存預警 (表格顯示中文沒問題) ---
 st.header("📊 全球庫存預警")
 if not os.path.exists("inventory.csv"):
     force_init_data()
@@ -61,32 +56,36 @@ if not os.path.exists("inventory.csv"):
 try:
     inv_df = pd.read_csv("inventory.csv")
     def style_stock(row):
-        return ['background-color: #ffcccc' if row['現貨庫存'] < row['預警門檻'] else '' for _ in row]
+        return ['background-color: #ffcccc' if row['Stock'] < row['Threshold'] else '' for _ in row]
+    # 這裡表格顯示還是可以用中文
     st.dataframe(inv_df.style.apply(style_stock, axis=1), use_container_width=True)
-except:
-    st.warning("請按左側「初始化」按鈕。")
+except Exception as e:
+    st.error(f"數據顯示異常: {e}")
 
 st.markdown("---")
 
-# --- 分區二：銷售報表 ---
+# --- 分區二：銷售報表 (圖表絕對安全版) ---
 st.header("📈 銷售分析 (90天週期)")
 if os.path.exists("all_orders_90days.csv"):
     try:
         sales_df = pd.read_csv("all_orders_90days.csv")
-        sales_df['日期'] = pd.to_datetime(sales_df['日期'])
-        sales_df['月份'] = sales_df['日期'].dt.strftime('%m月')
+        sales_df['Date'] = pd.to_datetime(sales_df['Date'])
+        sales_df['Month'] = sales_df['Date'].dt.strftime('%m') + " Month"
         
-        target_month = st.selectbox("選擇查看月份", sorted(sales_df['月份'].unique()))
-        month_data = sales_df[sales_df['月份'] == target_month]
+        target_month = st.selectbox("Select Month", sorted(sales_df['Month'].unique()))
+        month_data = sales_df[sales_df['Month'] == target_month]
         
-        chart_data = month_data.groupby("產品名稱")["數量"].sum().sort_values()
+        chart_data = month_data.groupby("Product")["Qty"].sum().sort_values()
         
+        # 繪圖保護層
         fig, ax = plt.subplots(figsize=(10, 6))
         chart_data.plot(kind='barh', ax=ax, color='#4CAF50')
-        ax.set_title(f"{target_month} Sales Rank")
+        ax.set_title(f"Sales Ranking - {target_month}")
         plt.tight_layout()
         st.pyplot(fig)
     except Exception as e:
-        st.error(f"圖表顯示異常: {e}")
+        # 如果還是出錯，最後一招：直接顯示表格數據，不畫圖
+        st.error("圖表生成受阻，改為數據顯示：")
+        st.table(chart_data)
 else:
-    st.info("請點擊左側初始化。")
+    st.info("請點擊左側初始化數據。")
