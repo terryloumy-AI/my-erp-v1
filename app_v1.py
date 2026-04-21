@@ -28,7 +28,7 @@ def check_password():
 
     if btn_login:
         # ⚠️ 這裡設定你的登入密碼
-        if pwd_input == "your_secure_password_123": 
+        if pwd_input == "kingterryERP": 
             st.session_state["password_correct"] = True
             st.rerun() # 強制刷新，解決空白頁問題
         else:
