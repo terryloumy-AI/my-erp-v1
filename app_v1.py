@@ -29,7 +29,7 @@ def check_password():
         pwd_input = st.text_input("授權密碼", type="password", key="pwd_box")
     with col2:
         st.write("##")
-        if st.button("確定", use_container_width=True) or (pwd_input == "kingterryERP"): # 改為您的密碼
+        if st.button("確定", use_container_width=True) or (pwd_input == "your_password"): # 改為您的密碼
             st.session_state["password_correct"] = True
             st.rerun()
     return False
