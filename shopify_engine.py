@@ -1,12 +1,10 @@
 import requests
+import streamlit as st
 
-# --- ⚠️ 填寫區 ⚠️ ---
-# 1. 點擊「顯示權杖一次」後，把那串 shpat_... 貼在下面
-SHOPIFY_ACCESS_TOKEN = "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" 
-
-# 2. 你的商店網址 (根據你的截圖確認為此網址)
-SHOP_URL = "a-health-lab.myshopify.com"
-
+# --- 🔒 安全讀取區：從 Streamlit Secrets 讀取密鑰 ---
+# 程式會自動去雲端後台找這兩個變數，代碼裡完全不留痕跡
+SHOPIFY_ACCESS_TOKEN = st.secrets["SHOPIFY_ACCESS_TOKEN"]
+SHOP_URL = st.secrets["SHOP_URL"]
 API_VERSION = "2024-01"
 
 def get_real_inventory():
