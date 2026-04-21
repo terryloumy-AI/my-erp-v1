@@ -1,101 +1,4 @@
 import streamlit as st
-
-import pandas as pd
-import matplotlib.pyplot as plt
-import shopify_engine
-import io
-import os
-from reportlab.pdfgen import canvas
-from reportlab.lib.pagesizes import A4
-from reportlab.pdfbase import pdfmetrics
-from reportlab.pdfbase.ttfonts import TTFont
-
-# --- 1. 字體與配置 (解決 PDF 黑塊) ---
-def get_chinese_font():
-    paths = ["C:/Windows/Fonts/msjh.ttc", "C:/Windows/Fonts/simhei.ttf", "/System/Library/Fonts/STHeiti Light.ttc", "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc"]
-    for p in paths:
-        if os.path.exists(p):
-            try:
-                pdfmetrics.registerFont(TTFont('ChineseFont', p))
-                return 'ChineseFont'
-            except: continue
-    return 'Helvetica'
-
-CHINESE_FONT = get_chinese_font()
-
-# --- 2. 登入邏輯 ---
-st.set_page_config(page_title="跨境大健康 ERP V2.3.0", layout="wide")
-
-if "password_correct" not in st.session_state:
-    st.session_state["password_correct"] = False
-
-if not st.session_state["password_correct"]:
-    st.title("🔒 跨境大健康 ERP 系統")
-    pwd = st.text_input("輸入授權密碼", type="password")
-    if st.button("登入"):
-        if pwd == "your_password": # ⚠️ 請在此修改密碼
-            st.session_state["password_correct"] = True
-            st.rerun()
-        else: st.error("密碼錯誤")
-else:
-    # --- 3. 數據核心 (嚴格準備導出對象) ---
-    try:
-        products, orders, sales_stats = shopify_engine.get_full_data()
-        df_p = pd.DataFrame(products)
-        df_o = pd.DataFrame(orders)
-        
-        # 庫存定義
-        stock_col = "現貨庫存" if "現貨庫存" in df_p.columns else ("現有庫存" if "現有庫存" in df_p.columns else "庫存")
-        df_p["預警數量"] = 50 
-        
-        # 【A】產品銷售情況彙總
-        sum_list = []
-        for idx, row in df_p.iterrows():
-            sku = row.get("SKU", "")
-            sales_qty = sales_stats.get(sku, {}).get("銷售數量", 0)
-            sum_list.append({
-                "產品名稱": row.get("產品名稱", ""),
-                "SKU": sku,
-                "現貨庫存": row.get(stock_col, 0),
-                "銷售數量": sales_qty,
-                "預警數量": row.get("預警數量", 50)
-            })
-        df_sales_summary = pd.DataFrame(sum_list)
-
-        # 【B】訂單即時物流狀態
-        # 假設shopify_engine訂單數據有物流資訊
-        shipping_status_list = []
-        for idx, order in df_o.iterrows():
-            shipping_info = order.get("shipping_lines", [{}])
-            tracking_number = order.get("fulfillments", [{}])[0].get("tracking_number", "") if "fulfillments" in order and order["fulfillments"] else ""
-            shipping_status_list.append({
-                "訂單編號": order.get("name", ""),
-                "收件人": order.get("shipping_address", {}).get("name", "") if isinstance(order.get("shipping_address", {}), dict) else "",
-                "地址": order.get("shipping_address", {}).get("address1", "") if isinstance(order.get("shipping_address", {}), dict) else "",
-                "運送方式": shipping_info[0].get("title", "") if shipping_info and isinstance(shipping_info, list) else "",
-                "物流狀態": order.get("fulfillment_status", ""),
-                "追蹤號碼": tracking_number
-            })
-        df_logistics_status = pd.DataFrame(shipping_status_list)
-
-        # 【C】產品財務獲利明細
-        # 假設原本的 products 有包含計算財務的欄位
-        df_finance = df_p.copy()
-
-        # 匯出營運Excel(全表)
-        output = io.BytesIO()
-        with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
-            df_sales_summary.to_excel(writer, sheet_name="產品銷售情況彙總", index=False)
-            df_logistics_status.to_excel(writer, sheet_name="訂單即時物流狀態", index=False)
-            df_finance.to_excel(writer, sheet_name="產品財務獲利明細", index=False)
-        st.download_button(
-            label="匯出營運Excel(全表)",
-            data=output.getvalue(),
-            file_name="營運數據全表.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
-    except Exception as e:
-        st.error(f"資料加載錯誤: {e}")
 import pandas as pd
 import matplotlib.pyplot as plt
 import shopify_engine
@@ -234,9 +137,19 @@ else:
             st.pyplot(fig)
 
         st.divider()
-        # 物流表格回歸：確保顯示的是 df_logistics_final
+        # 物流表格：擴充顯示訂單號、配送狀態、付款狀態
         st.subheader("🚚 訂單即時物流狀態")
-        st.dataframe(df_logistics_final, use_container_width=True)
+        if not df_logistics_final.empty:
+            columns_to_show = []
+            for col in ["name", "fulfillment_status", "financial_status"]:
+                if col in df_logistics_final.columns:
+                    columns_to_show.append(col)
+            # 其餘欄位維持原本設計
+            other_columns = [c for c in df_logistics_final.columns if c not in columns_to_show]
+            final_columns = columns_to_show + other_columns
+            st.dataframe(df_logistics_final[final_columns], use_container_width=True)
+        else:
+            st.info("沒有物流紀錄可顯示")
 
     # --- Tab 3: 文案合規 ---
     with tab3:
