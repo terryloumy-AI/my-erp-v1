@@ -4,10 +4,10 @@ import streamlit as st
 # 從 Secrets 讀取密鑰
 SHOPIFY_ACCESS_TOKEN = st.secrets["SHOPIFY_ACCESS_TOKEN"]
 SHOP_URL = st.secrets["SHOP_URL"]
-API_VERSION = "2024-01"
+API_VERSION = "2024-04" # 使用較新的版本
 
 def get_real_inventory():
-    """抓取產品庫存 (保持原功能)"""
+    """抓取產品庫存"""
     url = f"https://{SHOP_URL}/admin/api/{API_VERSION}/products.json"
     headers = {"X-Shopify-Access-Token": SHOPIFY_ACCESS_TOKEN}
     try:
@@ -20,32 +20,41 @@ def get_real_inventory():
 
 def get_orders_and_profit():
     """抓取訂單、計算毛利與物流狀態"""
-    # 抓取最近 50 筆訂單
-    url = f"https://{SHOP_URL}/admin/api/{API_VERSION}/orders.json?status=any&limit=50"
-    headers = {"X-Shopify-Access-Token": SHOPIFY_ACCESS_TOKEN}
+    # 【修正點】取消 status=any 以外的限制，確保能抓到所有狀態的訂單
+    url = f"https://{SHOP_URL}/admin/api/{API_VERSION}/orders.json?status=any"
+    headers = {
+        "X-Shopify-Access-Token": SHOPIFY_ACCESS_TOKEN,
+        "Content-Type": "application/json"
+    }
     
     try:
-        response = requests.get(url, headers=headers, timeout=10)
+        response = requests.get(url, headers=headers, timeout=15)
         if response.status_code == 200:
             orders = response.json().get('orders', [])
+            if not orders:
+                return None
+                
             order_data = []
             for o in orders:
-                # 物流狀態轉換為中文
+                # 判定物流狀態
                 f_status = o.get('fulfillment_status')
                 if f_status == 'fulfilled': status_cn = "🟢 已發貨"
-                elif f_status is None: status_cn = "🟡 待處理"
+                elif f_status is None or f_status == 'null': status_cn = "🟡 待處理"
                 else: status_cn = f"🔵 {f_status}"
 
                 order_data.append({
                     "訂單編號": o.get('name'),
                     "日期": o.get('created_at')[:10],
-                    "客戶": o.get('customer', {}).get('first_name', '訪客'),
+                    "客戶": o.get('customer', {}).get('first_name', '匿名客戶') if o.get('customer') else "無客戶資訊",
                     "總金額": float(o.get('total_price', 0)),
                     "物流狀態": status_cn,
-                    "商品數量": len(o.get('line_items', [])),
-                    # 簡易毛利計算：假設平均毛利率為 40% (未來可對接真實成本)
                     "預估毛利": float(o.get('total_price', 0)) * 0.4 
                 })
             return order_data
+        else:
+            # 如果報錯，把錯誤代碼印出來（在 Streamlit 後台看得到）
+            print(f"API Error: {response.status_code}")
+            return None
+    except Exception as e:
+        print(f"Exception: {e}")
         return None
-    except: return None
