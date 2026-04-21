@@ -17,7 +17,6 @@ def get_full_data():
                 v = p['variants'][0]
                 inv_id = v.get('inventory_item_id')
                 price = float(v.get('price', 0))
-                # 抓取真實成本
                 cost = 0.0
                 if inv_id:
                     c_url = f"https://{SHOP_URL}/admin/api/{API_VERSION}/inventory_items/{inv_id}.json"
@@ -33,12 +32,10 @@ def get_full_data():
                     "毛利率": ((price - cost) / price * 100) if price > 0 else 0
                 })
 
-        # 2. 抓取訂單詳細內容 (包含賣了什麼)
+        # 2. 抓取訂單詳細內容
         o_url = f"https://{SHOP_URL}/admin/api/{API_VERSION}/orders.json?status=any"
         o_res = requests.get(o_url, headers=headers, timeout=10)
-        all_orders = []
-        sales_stats = {} # 用來統計產品銷量
-        
+        all_orders, sales_stats = [], {}
         if o_res.status_code == 200:
             for o in o_res.json().get('orders', []):
                 all_orders.append({
@@ -46,7 +43,6 @@ def get_full_data():
                     "Total_USD": float(o.get('total_price', 0)),
                     "Status": "Shipped" if o.get('fulfillment_status') == 'fulfilled' else "Pending"
                 })
-                # 統計每個產品賣出數量
                 for item in o.get('line_items', []):
                     name = item.get('title')
                     qty = item.get('quantity', 0)
