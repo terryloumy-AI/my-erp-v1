@@ -9,7 +9,7 @@ def check_password():
     """如果密碼正確則返回 True，否則顯示輸入框並返回 False"""
     def password_entered():
         # ⚠️ 這裡設定你的登入密碼
-        if st.session_state["password"] == "your_secure_password_123": # 👈 請修改成你想設定的密碼
+        if st.session_state["password"] == "kingterryERP": # 👈 請修改成你想設定的密碼
             st.session_state["password_correct"] = True
             del st.session_state["password"]  # 登入後刪除緩存中的密碼，增加安全性
         else:
