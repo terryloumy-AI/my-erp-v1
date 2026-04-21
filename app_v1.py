@@ -11,11 +11,10 @@ from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.lib import colors
 from reportlab.lib.utils import ImageReader
 
-# --- 1. 系統配置與字庫 ---
+# --- 1. 基礎配置與字庫 ---
 DB_FILE = "risk_words.txt"
 
 def get_chinese_font():
-    # 支援 Windows 與 Linux 環境的中文字體路徑
     font_paths = ["C:/Windows/Fonts/msjh.ttc", "C:/Windows/Fonts/simhei.ttf", "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"]
     for path in font_paths:
         if os.path.exists(path):
@@ -37,101 +36,77 @@ def save_risk_words(words):
     with open(DB_FILE, "w", encoding="utf-8") as f:
         for w in words: f.write(f"{w}\n")
 
-# --- 2. 安全登入 ---
-def check_password():
-    if st.session_state.get("password_correct", False): return True
-    st.title("🔒 跨境大健康 ERP 內部系統")
-    pwd_input = st.text_input("授權密碼", type="password")
-    if st.button("確定登入"):
-        if pwd_input == "your_password": # ⚠️ 請在此修改您的正確密碼
+# --- 2. 數據處理優化 (防止 KeyError) ---
+def safe_get_df_p(products):
+    df = pd.DataFrame(products)
+    # 強制檢查並補齊財務欄位，若遺失則設為 0
+    cols = ["產品名稱", "現有庫存", "售價", "成本", "毛利", "毛利率"]
+    for col in cols:
+        if col not in df.columns:
+            if col == "現有庫存" and "現貨庫存" in df.columns:
+                df["現有庫存"] = df["現貨庫存"]
+            else:
+                df[col] = 0
+    return df[cols]
+
+# --- 3. 頁面配置 ---
+st.set_page_config(page_title="跨境大健康 ERP 2.2.0 整合版", layout="wide")
+
+# 安全登入
+if "password_correct" not in st.session_state:
+    st.session_state["password_correct"] = False
+
+if not st.session_state["password_correct"]:
+    st.title("🔒 內部系統登入")
+    pwd = st.text_input("輸入授權密碼", type="password")
+    if st.button("登入"):
+        if pwd == "your_password": # ⚠️ 請在此修改密碼
             st.session_state["password_correct"] = True
             st.rerun()
-        else: st.error("❌ 密碼錯誤")
-    return False
+        else: st.error("密碼錯誤")
+else:
+    # --- 數據加載 ---
+    try:
+        raw_products, raw_orders, sales_stats = shopify_engine.get_full_data()
+        df_p = safe_get_df_p(raw_products)
+        df_o = pd.DataFrame(raw_orders)
+    except Exception as e:
+        st.error(f"數據加載出錯: {e}")
+        st.stop()
 
-st.set_page_config(page_title="A's ERP 2.1.3 完整商業版", layout="wide")
-
-if check_password():
-    # --- 3. 側邊欄 (同步功能) ---
+    # --- 側邊欄 ---
     with st.sidebar:
         st.title("👤 系統管理")
-        if st.button("🔄 同步 Shopify 最新數據"):
+        if st.button("🔄 同步數據"):
             st.cache_data.clear()
-            st.toast("✅ 數據同步完成")
             st.rerun()
-        st.divider()
-        if st.button("🚪 安全登出"):
-            st.session_state["password_correct"] = False
-            st.rerun()
-        st.info("版本: V 2.1.3 (功能全回歸)")
+        st.info("版本: V 2.2.0 (需求完整修復)")
 
-    # 獲取核心數據
-    products, orders, sales_stats = shopify_engine.get_full_data()
-    df_p = pd.DataFrame(products)
-    df_o = pd.DataFrame(orders)
-    
-    # 動態匹配庫存欄位名稱 (防止 KeyError)
-    stock_col = "現貨庫存" if "現貨庫存" in df_p.columns else ("現有庫存" if "現有庫存" in df_p.columns else "庫存")
-
-    # --- 4. 匯出工具 ---
-    def to_excel(df):
-        output = io.BytesIO()
-        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-            df.to_excel(writer, index=False)
-        return output.getvalue()
-
-    def export_pdf_full(df_p, df_o, sales_stats, fig_obj):
-        buffer = io.BytesIO()
-        p = canvas.Canvas(buffer, pagesize=A4)
-        width, height = A4
-        p.setFont(CHINESE_FONT, 20)
-        p.drawString(50, height - 50, "營運分析與財務報表 (V2.1.3)")
-        
-        # 指標卡
-        p.setFont(CHINESE_FONT, 12)
-        p.drawString(50, height - 90, f"總銷售額: ${df_o['Total_USD'].sum():,.2f}")
-        total_p = sum(sales_stats.get(x['產品名稱'], 0) * x['毛利'] for x in products)
-        p.drawString(250, height - 90, f"總真實利潤: ${total_p:,.2f}")
-        
-        # 繪製圖表
-        img_buf = io.BytesIO()
-        fig_obj.savefig(img_buf, format='png', bbox_inches='tight')
-        img_buf.seek(0)
-        p.drawImage(ImageReader(img_buf), 50, 50, width=500, height=250)
-        
-        p.showPage(); p.save()
-        return buffer.getvalue()
-
-    # --- 5. 頁面分頁 ---
+    # --- 分頁系統 ---
     tab1, tab2, tab3 = st.tabs(["📦 庫存管理", "💰 營運看板", "🔍 文案合規"])
 
     # --- Tab 1: 庫存管理 ---
     with tab1:
-        st.header("庫存監控與提醒")
-        
-        # 缺貨提醒區 (補回功能)
-        st.subheader("⚠️ 缺貨報警清單")
-        low_stock_threshold = 50
-        df_low_stock = df_p[df_p[stock_col] < low_stock_threshold]
-        if not df_low_stock.empty:
-            st.error(f"警告：以下 {len(df_low_stock)} 項產品庫存低於 {low_stock_threshold} 件！")
-            st.dataframe(df_low_stock[["產品名稱", stock_col, "售價"]], use_container_width=True)
+        st.header("庫存監控")
+        low_stock = df_p[df_p["現有庫存"] < 50]
+        if not low_stock.empty:
+            st.error(f"⚠️ 缺貨警告：有 {len(low_stock)} 項產品庫存低於 50 件")
+            st.dataframe(low_stock, use_container_width=True)
         else:
-            st.success("✅ 目前所有產品庫存充足。")
-            
+            st.success("✅ 庫存水平正常")
+        
         st.divider()
-        st.subheader("🛒 全品項庫存清單")
-        st.dataframe(df_p[["產品名稱", stock_col, "售價", "成本"]], use_container_width=True)
+        st.subheader("全品項清單")
+        st.dataframe(df_p, use_container_width=True)
 
     # --- Tab 2: 營運看板 ---
     with tab2:
         st.header("財務指標與營運分析")
         
-        # 頂部指標
+        # 頂部四大指標
         m1, m2, m3, m4 = st.columns(4)
-        total_rev = df_o['Total_USD'].sum()
-        # 計算總利潤與平均毛利率
-        total_profit = sum(sales_stats.get(x['產品名稱'], 0) * x['毛利'] for x in products)
+        total_rev = df_o['Total_USD'].sum() if 'Total_USD' in df_o.columns else 0
+        total_profit = (df_p['毛利'] * df_p['產品名稱'].map(sales_stats).fillna(0)).sum()
         avg_margin = df_p['毛利率'].mean()
         
         m1.metric("總銷售額", f"${total_rev:,.2f}")
@@ -139,20 +114,40 @@ if check_password():
         m3.metric("訂單總數", len(df_o))
         m4.metric("平均毛利率", f"{avg_margin:.1f}%")
 
-        # 數據繪圖 (先定義 fig)
-        fig_main, ax = plt.subplots(figsize=(10, 4))
-        df_sales_bar = pd.DataFrame([{"P": k, "Q": v} for k, v in sales_stats.items()]).sort_values("Q", ascending=False)
-        ax.bar(df_sales_bar["P"], df_sales_bar["Q"], color='#3498db')
-        plt.xticks(rotation=30, fontsize=8)
-        plt.tight_layout()
+        # 銷售圖表 (定義 fig 解決 NameError)
+        fig, ax = plt.subplots(figsize=(10, 4))
+        df_bar = pd.DataFrame([{"P": k, "Q": v} for k, v in sales_stats.items()]).sort_values("Q", ascending=False)
+        if not df_bar.empty:
+            ax.bar(df_bar["P"], df_bar["Q"], color='#3498db')
+            plt.xticks(rotation=30)
+            st.subheader("📈 產品銷售分布")
+            st.pyplot(fig)
+        
+        # 財務表格
+        st.subheader("💵 產品財務明細")
+        st.dataframe(df_p.style.format({
+            "售價": "${:.2f}", "成本": "${:.2f}", "毛利": "${:.2f}", "毛利率": "{:.1f}%"
+        }), use_container_width=True)
 
-        # 匯出按鈕
-        st.write("### 📥 報表導出 (所見即所得)")
-        c_ex1, c_ex2 = st.columns([1, 4])
-        with c_ex1:
-            st.download_button("📊 財務 Excel", data=to_excel(df_p), file_name='finance_full.xlsx')
-        with c_ex2:
-            pdf_data = export_pdf_full(df_p, df_o, sales_stats, fig_main)
-            st.download_button("📄 專業 PDF 報表 (不亂碼)", data=pdf_data, file_name='erp_report.pdf')
+    # --- Tab 3: 文案合規 ---
+    with tab3:
+        st.header("文案合規檢查")
+        c1, c2 = st.columns([2, 1])
+        
+        with c2:
+            st.subheader("🛡️ 字庫管理")
+            words = load_risk_words()
+            new_words = st.text_area("編輯違規詞 (每行一個)", value="\n".join(words), height=200)
+            if st.button("保存字庫"):
+                save_risk_words([w.strip() for w in new_words.split("\n") if w.strip()])
+                st.success("字庫已更新")
+                st.rerun()
 
-        # 財務明細表格 (
+        with c1:
+            st.subheader("📝 內容掃描")
+            text = st.text_area("貼入待檢查文案", height=200)
+            if st.button("開始掃描"):
+                risks = load_risk_words()
+                found = [w for w in risks if w in text]
+                if found: st.error(f"❌ 發現違規詞：{', '.join(found)}")
+                else: st.success("✅ 檢查通過")
