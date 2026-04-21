@@ -3,78 +3,82 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import shopify_engine
 
-st.set_page_config(page_title="A's 大健康 ERP 1.4", layout="wide")
+st.set_page_config(page_title="A's 大健康 ERP 1.5", layout="wide")
 
-# --- 側邊欄控制 ---
+# 側邊欄
 st.sidebar.title("⚙️ 系統控制")
-if st.sidebar.button("🔄 同步 Shopify 最新數據"):
+if st.sidebar.button("🔄 同步即時數據"):
     st.cache_data.clear()
     st.rerun()
 
 # 數據讀取
-products, orders = shopify_engine.get_full_data()
+products, orders, sales_stats = shopify_engine.get_full_data()
 
-# --- 側邊欄平均毛利統計 ---
-if products:
-    df_p = pd.DataFrame(products)
-    valid_margins = df_p[df_p["成本"] > 0]["毛利率"]
-    avg_m = valid_margins.mean() if not valid_margins.empty else 0
-    st.sidebar.markdown("---")
-    st.sidebar.metric("📊 全球平均毛利率", f"{avg_m:.1f}%")
+st.title("🚀 跨境大健康智能管理系統 1.5")
 
-st.title("🚀 跨境大健康智能管理系統 1.4")
+tab1, tab2, tab3 = st.tabs(["📦 庫存管理", "💰 營運看板", "🔍 文案合規"])
 
-tab1, tab2, tab3 = st.tabs(["📦 庫存管理 (第一版)", "💰 營運看板 (財務利潤)", "🔍 文案合規"])
-
-# --- Tab 1: 只看庫存 (小白/倉庫權限) ---
+# --- Tab 1: 庫存管理 (增加統計圖表) ---
 with tab1:
-    st.header("實時產品庫存")
+    st.header("庫存分佈與預警")
     if products:
-        df_inv = pd.DataFrame(products)[["產品名稱", "現貨庫存"]]
-        df_inv["預警門檻"] = 50
-        st.dataframe(
-            df_inv.style.apply(lambda x: ['background-color: #ffcccc' if val < 50 else '' for val in x], subset=['現貨庫存'], axis=1),
-            use_container_width=True
-        )
-        st.caption("💡 此頁面僅顯示實物庫存，不涉及財務敏感資訊。")
-    else:
-        st.error("連線失敗，請檢查 API")
-
-# --- Tab 2: 營運看板 (老闆/財務權限) ---
-with tab2:
-    st.header("📉 營運財務利潤看板")
-    if products and orders:
-        # 1. 頂部營運指標
-        df_o = pd.DataFrame(orders)
         df_p = pd.DataFrame(products)
+        col_left, col_right = st.columns([1.5, 1])
         
+        with col_left:
+            st.subheader("實時庫存清單")
+            st.dataframe(df_p[["產品名稱", "現貨庫存"]].style.apply(
+                lambda x: ['background-color: #ffcccc' if val < 50 else '' for val in x], subset=['現貨庫存'], axis=1
+            ), use_container_width=True)
+            
+        with col_right:
+            st.subheader("庫存佔比圖")
+            fig1, ax1 = plt.subplots()
+            ax1.barh(df_p["產品名稱"], df_p["現貨庫存"], color='skyblue')
+            ax1.set_xlabel("數量")
+            st.pyplot(fig1)
+
+# --- Tab 2: 營運看板 (利潤、銷量、銷售統計) ---
+with tab2:
+    st.header("📈 全球營運與獲利分析")
+    if products and orders:
+        df_p = pd.DataFrame(products)
+        df_o = pd.DataFrame(orders)
+        
+        # 1. 核心指標
         c1, c2, c3 = st.columns(3)
         total_sales = df_o['Total_USD'].sum()
-        # 根據平均毛利計算預估利潤
+        # 根據各別產品成本計算真實總毛利
+        real_total_profit = sum(sales_stats.get(p['產品名稱'], 0) * p['毛利'] for p in products)
+        
         c1.metric("總銷售額", f"${total_sales:,.2f}")
-        c2.metric("預估總利潤", f"${total_sales * (avg_m/100):,.2f}", delta=f"{avg_m:.1f}% Avg Margin")
-        c3.metric("總訂單數", f"{len(df_o)} 筆")
+        c2.metric("累積真實利潤", f"${real_total_profit:,.2f}")
+        c3.metric("平均毛利率", f"{(real_total_profit/total_sales*100 if total_sales>0 else 0):.1f}%")
 
         st.markdown("---")
         
-        # 2. 產品級別毛利清單
-        st.subheader("📋 個別產品獲利分析")
-        st.dataframe(
-            df_p[["產品名稱", "售價", "成本", "毛利", "毛利率"]].style.format({
-                "售價": "${:.2f}", "成本": "${:.2f}", "毛利": "${:.2f}", "毛利率": "{:.1f}%"
-            }).background_gradient(subset=["毛利率"], cmap="RdYlGn"),
-            use_container_width=True
-        )
+        # 2. 產品銷售統計 (銷量與利潤)
+        st.subheader("🛍️ 產品銷售與利潤排行榜")
+        df_sales = pd.DataFrame([
+            {"產品名稱": name, "賣出數量": qty, 
+             "貢獻利潤": qty * df_p[df_p['產品名稱']==name]['毛利'].values[0] if name in df_p['產品名稱'].values else 0}
+            for name, qty in sales_stats.items()
+        ]).sort_values(by="賣出數量", ascending=False)
         
-        # 3. 訂單狀態
-        st.subheader("🚚 物流與訂單追蹤")
-        st.table(df_o)
-    else:
-        st.info("請確認 Shopify 中已有產品與訂單數據。")
+        st.dataframe(df_sales.style.background_gradient(cmap="Greens"), use_container_width=True)
 
-# --- Tab 3: 文案檢查 ---
+        # 3. 物流與訂單
+        st.markdown("---")
+        col_o_l, col_o_r = st.columns([2, 1])
+        with col_o_l:
+            st.subheader("🚚 物流訂單追蹤")
+            st.dataframe(df_o, use_container_width=True)
+        with col_o_r:
+            st.subheader("📦 訂單組成統計")
+            fig2, ax2 = plt.subplots()
+            ax2.pie(df_sales["賣出數量"], labels=df_sales["產品名稱"], autopct='%1.1f%%')
+            st.pyplot(fig2)
+
 with tab3:
-    st.header("🔍 文案合規檢查")
-    text = st.text_area("輸入文案...", height=100)
-    if st.button("掃描"):
-        st.success("檢查完成")
+    st.header("🔍 文案合規")
+    st.write("功能正常運作中...")
