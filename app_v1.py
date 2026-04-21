@@ -26,7 +26,7 @@ def check_password():
 
     if btn_login or (pwd_input and st.session_state.get("pwd_box")):
         # ⚠️ 請在此處改回您的正確密碼
-        if pwd_input == "your_original_password": 
+        if pwd_input == "kingterryERP": 
             st.session_state["password_correct"] = True
             st.rerun()
         elif btn_login:
