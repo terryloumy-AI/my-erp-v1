@@ -4,7 +4,7 @@ import streamlit as st
 # 從 Secrets 讀取密鑰
 SHOPIFY_ACCESS_TOKEN = st.secrets["SHOPIFY_ACCESS_TOKEN"]
 SHOP_URL = st.secrets["SHOP_URL"]
-API_VERSION = "2024-04" # 使用較新的版本
+API_VERSION = "2024-04"
 
 def get_real_inventory():
     """抓取產品庫存"""
@@ -19,42 +19,31 @@ def get_real_inventory():
     except: return None
 
 def get_orders_and_profit():
-    """抓取訂單、計算毛利與物流狀態"""
-    # 【修正點】取消 status=any 以外的限制，確保能抓到所有狀態的訂單
+    """抓取訂單、計算利潤並解決圖表亂碼問題"""
     url = f"https://{SHOP_URL}/admin/api/{API_VERSION}/orders.json?status=any"
-    headers = {
-        "X-Shopify-Access-Token": SHOPIFY_ACCESS_TOKEN,
-        "Content-Type": "application/json"
-    }
+    headers = {"X-Shopify-Access-Token": SHOPIFY_ACCESS_TOKEN}
     
     try:
         response = requests.get(url, headers=headers, timeout=15)
         if response.status_code == 200:
             orders = response.json().get('orders', [])
-            if not orders:
-                return None
+            if not orders: return None
                 
             order_data = []
             for o in orders:
-                # 判定物流狀態
+                # 這裡改用英文標籤，避免圖表出現方塊亂碼
                 f_status = o.get('fulfillment_status')
-                if f_status == 'fulfilled': status_cn = "🟢 已發貨"
-                elif f_status is None or f_status == 'null': status_cn = "🟡 待處理"
-                else: status_cn = f"🔵 {f_status}"
+                if f_status == 'fulfilled': status_label = "Shipped"
+                elif f_status is None or f_status == 'null': status_label = "Pending"
+                else: status_label = str(f_status).capitalize()
 
                 order_data.append({
-                    "訂單編號": o.get('name'),
-                    "日期": o.get('created_at')[:10],
-                    "客戶": o.get('customer', {}).get('first_name', '匿名客戶') if o.get('customer') else "無客戶資訊",
-                    "總金額": float(o.get('total_price', 0)),
-                    "物流狀態": status_cn,
-                    "預估毛利": float(o.get('total_price', 0)) * 0.4 
+                    "Order_ID": o.get('name'),
+                    "Date": o.get('created_at')[:10],
+                    "Total_USD": float(o.get('total_price', 0)),
+                    "Status": status_label,
+                    "Profit_Est": float(o.get('total_price', 0)) * 0.4 
                 })
             return order_data
-        else:
-            # 如果報錯，把錯誤代碼印出來（在 Streamlit 後台看得到）
-            print(f"API Error: {response.status_code}")
-            return None
-    except Exception as e:
-        print(f"Exception: {e}")
         return None
+    except: return None
