@@ -8,18 +8,16 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
-from reportlab.lib import colors
 
-# --- 1. 字庫與 PDF 導出配置 ---
+# --- 1. 字庫與導出配置 ---
 DB_FILE = "risk_words.txt"
 
 def get_chinese_font():
-    # 嘗試多個路徑以確保不同系統都能找到中文字型
     font_paths = [
-        "C:/Windows/Fonts/msjh.ttc",    # Windows 微軟正黑體
-        "C:/Windows/Fonts/simhei.ttf",  # Windows 黑體
+        "C:/Windows/Fonts/msjh.ttc",    # Windows
+        "C:/Windows/Fonts/simhei.ttf",  # Windows
         "/System/Library/Fonts/STHeiti Light.ttc", # macOS
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf" # Linux 後備
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf" # Linux
     ]
     for path in font_paths:
         if os.path.exists(path):
@@ -42,7 +40,7 @@ def save_risk_words(words):
         for w in words: f.write(f"{w}\n")
 
 # --- 2. 登入系統 ---
-st.set_page_config(page_title="跨境大健康 ERP 完美版 V2.2.4", layout="wide")
+st.set_page_config(page_title="跨境大健康 ERP 完美版 V2.2.5", layout="wide")
 
 if "password_correct" not in st.session_state:
     st.session_state["password_correct"] = False
@@ -56,7 +54,7 @@ if not st.session_state["password_correct"]:
             st.rerun()
         else: st.error("密碼錯誤")
 else:
-    # --- 3. 數據加載 ---
+    # --- 3. 數據核心加載 ---
     try:
         products, orders, sales_stats = shopify_engine.get_full_data()
         df_p = pd.DataFrame(products)
@@ -76,14 +74,34 @@ else:
         if st.button("🚪 安全登出"):
             st.session_state["password_correct"] = False
             st.rerun()
-        st.info("版本: V 2.2.4 (全功能整合)")
+        st.info("版本: V 2.2.5 (庫存+營運雙導出)")
 
-    # --- 5. 分頁功能 ---
+    # --- 5. 功能分頁 ---
     tab1, tab2, tab3 = st.tabs(["📦 庫存管理", "💰 營運看板", "🔍 文案合規"])
 
     # --- Tab 1: 庫存管理 ---
     with tab1:
-        st.header("📦 庫存監控")
+        st.header("📦 庫存監控與報表匯出")
+        
+        # 庫存導出按鈕
+        c_inv1, c_inv2, c_inv3 = st.columns([1, 1, 3])
+        with c_inv1:
+            inv_excel = io.BytesIO()
+            with pd.ExcelWriter(inv_excel, engine='xlsxwriter') as writer:
+                df_p[["產品名稱", stock_col, "售價", "成本"]].to_excel(writer, index=False, sheet_name='庫存清單')
+            st.download_button("📊 匯出庫存 Excel", data=inv_excel.getvalue(), file_name='Inventory_Report.xlsx')
+        
+        with c_inv2:
+            inv_pdf = io.BytesIO()
+            p_pdf = canvas.Canvas(inv_pdf, pagesize=A4)
+            p_pdf.setFont(CHINESE_FONT, 16)
+            p_pdf.drawString(100, 800, "庫存清單報告")
+            p_pdf.save()
+            st.download_button("📄 匯出庫存 PDF", data=inv_pdf.getvalue(), file_name='Inventory_Report.pdf')
+
+        st.divider()
+
+        # 缺貨提醒
         low_stock = df_p[df_p[stock_col] < 50]
         if not low_stock.empty:
             st.error(f"⚠️ 缺貨提醒：有 {len(low_stock)} 項產品庫存低於 50 件")
@@ -91,11 +109,10 @@ else:
         else:
             st.success("✅ 庫存水平安全")
         
-        st.divider()
         st.subheader("實時庫存清單")
         st.dataframe(df_p[["產品名稱", stock_col, "售價", "成本"]], use_container_width=True)
 
-    # --- Tab 2: 營運看板 (核心修正版) ---
+    # --- Tab 2: 營運看板 ---
     with tab2:
         st.header("💰 營運分析看板")
         
@@ -108,26 +125,23 @@ else:
         m3.metric("訂單總數", len(df_o))
         m4.metric("平均毛利率", f"{(df_p['毛利率'].mean()):.1f}%")
 
-        # B. 匯出功能按鈕 (回歸！)
-        st.write("### 📥 數據導出中心")
+        # B. 營運匯出按鈕
+        st.write("### 📥 營運數據導出")
         btn_col1, btn_col2, btn_col3 = st.columns([1, 1, 3])
-        
         with btn_col1:
-            # Excel 導出邏輯
-            output = io.BytesIO()
-            with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+            op_excel = io.BytesIO()
+            with pd.ExcelWriter(op_excel, engine='xlsxwriter') as writer:
                 df_p.to_excel(writer, index=False, sheet_name='財務明細')
                 df_o.to_excel(writer, index=False, sheet_name='物流訂單')
-            st.download_button("📊 匯出 Excel", data=output.getvalue(), file_name='ERP_Report.xlsx')
+            st.download_button("📊 匯出營運 Excel", data=op_excel.getvalue(), file_name='ERP_Sales_Report.xlsx')
 
         with btn_col2:
-            # PDF 導出邏輯 (簡化版示意)
-            pdf_buffer = io.BytesIO()
-            p_pdf = canvas.Canvas(pdf_buffer, pagesize=A4)
+            op_pdf = io.BytesIO()
+            p_pdf = canvas.Canvas(op_pdf, pagesize=A4)
             p_pdf.setFont(CHINESE_FONT, 16)
-            p_pdf.drawString(100, 800, f"營運報告 - 總銷售: ${total_rev:,.2f}")
+            p_pdf.drawString(100, 800, f"營運報告 - 總利潤: ${total_profit:,.2f}")
             p_pdf.save()
-            st.download_button("📄 匯出 PDF", data=pdf_buffer.getvalue(), file_name='ERP_Report.pdf')
+            st.download_button("📄 匯出營運 PDF", data=op_pdf.getvalue(), file_name='ERP_Sales_Report.pdf')
 
         st.divider()
 
@@ -157,7 +171,7 @@ else:
 
         st.divider()
 
-        # F. 物流跟進 (確保顯示正確)
+        # F. 物流跟進
         st.subheader("🚚 訂單即時物流狀態")
         if not df_o.empty:
             log_cols = ["Order_Number", "name", "Fulfillment_Status", "fulfillment_status", "Financial_Status", "Total_USD"]
