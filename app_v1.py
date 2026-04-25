@@ -4,12 +4,13 @@ import matplotlib.pyplot as plt
 import shopify_engine
 import io
 import os
+from datetime import datetime, timedelta
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 
-# --- 1. 字體與配置 (解決 PDF 黑塊) ---
+# --- 1. 系統字體配置 ---
 def get_chinese_font():
     paths = ["C:/Windows/Fonts/msjh.ttc", "C:/Windows/Fonts/simhei.ttf", "/System/Library/Fonts/STHeiti Light.ttc", "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc"]
     for p in paths:
@@ -22,8 +23,27 @@ def get_chinese_font():
 
 CHINESE_FONT = get_chinese_font()
 
-# --- 2. 登入邏輯 ---
-st.set_page_config(page_title="跨境大健康 ERP V2.3.0", layout="wide")
+# --- 2. 動態日期邏輯 (讓 2026 的測試數據永遠變為當前日期) ---
+def make_dates_dynamic(df):
+    if df.empty: return df
+    
+    # 假設 Shopify 訂單日期欄位為 'created_at' 或 'processed_at'
+    date_col = 'created_at' if 'created_at' in df.columns else ('processed_at' if 'processed_at' in df.columns else None)
+    
+    if date_col:
+        df[date_col] = pd.to_datetime(df[date_col])
+        # 找出數據中的最大日期
+        latest_data_date = df[date_col].max()
+        # 計算與今天日期的差距
+        time_offset = datetime.now() - latest_data_date
+        # 將所有日期整體推移到現在
+        df[date_col] = df[date_col] + time_offset
+        # 轉換回易讀字串格式
+        df['顯示日期'] = df[date_col].dt.strftime('%Y-%m-%d %H:%M')
+    return df
+
+# --- 3. 登入系統 ---
+st.set_page_config(page_title="跨境大健康 ERP V2.3.1", layout="wide")
 
 if "password_correct" not in st.session_state:
     st.session_state["password_correct"] = False
@@ -32,68 +52,66 @@ if not st.session_state["password_correct"]:
     st.title("🔒 跨境大健康 ERP 系統")
     pwd = st.text_input("輸入授權密碼", type="password")
     if st.button("登入"):
-        if pwd == "your_password": # ⚠️ 請在此修改密碼
+        if pwd == "123456": # ⚠️ 密碼請自行修改
             st.session_state["password_correct"] = True
             st.rerun()
         else: st.error("密碼錯誤")
 else:
-    # --- 3. 數據核心 (嚴格準備導出對象) ---
+    # --- 4. 數據核心 ---
     try:
         products, orders, sales_stats = shopify_engine.get_full_data()
         df_p = pd.DataFrame(products)
         df_o = pd.DataFrame(orders)
         
-        # 庫存定義
+        # 執行日期動態化
+        df_o = make_dates_dynamic(df_o)
+        
+        # 庫存定義與預警
         stock_col = "現貨庫存" if "現貨庫存" in df_p.columns else ("現有庫存" if "現有庫存" in df_p.columns else "庫存")
         df_p["預警數量"] = 50 
         
-        # 數據 A：營運看板 - 銷售情況彙總
+        # A. 營運匯總數據
         sum_list = []
         for p_name, qty in sales_stats.items():
             price = df_p[df_p["產品名稱"] == p_name]["售價"].iloc[0] if p_name in df_p["產品名稱"].values else 0
             sum_list.append({"產品名稱": p_name, "銷售數量": qty, "銷售總額": qty * price})
         df_summary = pd.DataFrame(sum_list).sort_values("銷售數量", ascending=False)
 
-        # 數據 B：營運看板 - 物流數據 (還原物流屬性，不只有金額)
-        log_fields = ["Order_Number", "name", "Fulfillment_Status", "fulfillment_status", "Financial_Status", "Total_USD"]
-        valid_cols = [c for c in log_fields if c in df_o.columns]
-        df_logistics_final = df_o[valid_cols].copy() if valid_cols else df_o.copy()
+        # B. 物流數據 (修正：回歸物流欄位，不只是金額)
+        log_fields = ["Order_Number", "name", "Fulfillment_Status", "fulfillment_status", "Financial_Status", "Total_USD", "顯示日期"]
+        valid_log_cols = [c for c in log_fields if c in df_o.columns]
+        df_logistics_final = df_o[valid_log_cols].copy()
 
     except Exception as e:
-        st.error(f"同步失敗: {e}"); st.stop()
+        st.error(f"數據讀取失敗: {e}"); st.stop()
 
-    # --- 4. 左邊欄 (修正：回歸！) ---
+    # --- 5. 左邊欄 (確保存在) ---
     with st.sidebar:
-        st.title("👤 管理員中心")
-        if st.button("🔄 同步 Shopify 數據"):
+        st.title("👤 系統管理")
+        if st.button("🔄 同步數據"):
             st.cache_data.clear(); st.rerun()
         st.divider()
         if st.button("🚪 安全登出"):
             st.session_state["password_correct"] = False; st.rerun()
-        st.info("版本: V 2.3.0 (穩定整合版)")
+        st.info("版本: V 2.3.1 (動態演示版)")
 
-    # --- 5. 分頁 ---
     tab1, tab2, tab3 = st.tabs(["📦 庫存管理", "💰 營運看板", "🔍 文案合規"])
 
-    # --- Tab 1: 庫存管理 (隱藏成本與售價) ---
+    # --- Tab 1: 庫存管理 (隱藏成本售價) ---
     with tab1:
-        st.header("📦 庫存管理中心")
+        st.header("📦 庫存即時監控")
         c1, c2, _ = st.columns([1, 1, 3])
         with c1:
             inv_xl = io.BytesIO()
             with pd.ExcelWriter(inv_xl, engine='xlsxwriter') as wr:
-                df_p[["產品名稱", stock_col, "預警數量"]].to_excel(wr, index=False, sheet_name='Inventory')
+                df_p[["產品名稱", stock_col, "預警數量"]].to_excel(wr, index=False, sheet_name='庫存清單')
             st.download_button("📊 匯出庫存 Excel", data=inv_xl.getvalue(), file_name='Inventory_Report.xlsx')
-        with c2:
-            inv_pdf = io.BytesIO()
-            c = canvas.Canvas(inv_pdf, pagesize=A4); c.setFont(CHINESE_FONT, 16); c.drawString(100, 800, "庫存清單"); c.save()
-            st.download_button("📄 匯出庫存 PDF", data=inv_pdf.getvalue(), file_name='Inventory_Report.pdf')
-
+        
         st.divider()
-        st.subheader("📋 實時庫存清單 (僅展示現貨與預警)")
+        st.subheader("📋 實時庫存清單 (無價格敏感數據)")
         st.dataframe(df_p[["產品名稱", stock_col, "預警數量"]], use_container_width=True)
 
-    # --- Tab 2: 營運看板 ---
+    # --- Tab 2: 營運看板 (Excel 三合一匯出) ---
     with tab2:
         st.header("💰 營運分析看板")
         
@@ -105,22 +123,16 @@ else:
         m3.metric("訂單數", len(df_o))
         m4.metric("平均毛利", f"{(df_p['毛利率'].mean()):.1f}%")
 
-        # 📥 營運 Excel 導出 (修復：手動確保三個 Sheet)
         st.write("### 📥 數據導出中心")
         co1, co2, _ = st.columns([1, 1, 3])
         with co1:
             op_xl = io.BytesIO()
             with pd.ExcelWriter(op_xl, engine='xlsxwriter') as writer:
-                # 這裡強制導出您要求的三個數據集
+                # 這裡強制導出 3 個 Sheet
                 df_p[["產品名稱", "售價", "成本", "毛利", "毛利率"]].to_excel(writer, index=False, sheet_name='產品財務獲利明細')
                 df_summary.to_excel(writer, index=False, sheet_name='產品銷售情況彙總')
                 df_logistics_final.to_excel(writer, index=False, sheet_name='訂單即時物流狀態')
-            st.download_button("📊 匯出營運 Excel (全表)", data=op_xl.getvalue(), file_name='Operations_Report.xlsx')
-        
-        with co2:
-            op_pdf = io.BytesIO()
-            c = canvas.Canvas(op_pdf, pagesize=A4); c.setFont(CHINESE_FONT, 16); c.drawString(100, 800, "營運報告"); c.save()
-            st.download_button("📄 匯出營運 PDF", data=op_pdf.getvalue(), file_name='Operations_Report.pdf')
+            st.download_button("📊 匯出營運全表 Excel", data=op_xl.getvalue(), file_name='Full_Report.xlsx')
 
         st.divider()
         st.subheader("💵 產品財務獲利明細")
@@ -129,46 +141,16 @@ else:
         st.subheader("📋 產品銷售情況彙總")
         st.dataframe(df_summary.style.format({"銷售總額": "${:.2f}"}), use_container_width=True)
 
-        st.subheader("📊 產品銷售數量分布")
-        fig, ax = plt.subplots(figsize=(10, 3.5))
-        if not df_summary.empty:
-            ax.bar(df_summary["產品名稱"], df_summary["銷售數量"], color='#3498db')
-            plt.xticks(rotation=30, fontsize=8); plt.tight_layout()
-            st.pyplot(fig)
-
-        st.divider()
-        # 物流表格：擴充顯示訂單號、配送狀態、付款狀態
-        st.subheader("🚚 訂單即時物流狀態")
-        if not df_logistics_final.empty:
-            columns_to_show = []
-            for col in ["name", "fulfillment_status", "financial_status"]:
-                if col in df_logistics_final.columns:
-                    columns_to_show.append(col)
-            # 其餘欄位維持原本設計
-            other_columns = [c for c in df_logistics_final.columns if c not in columns_to_show]
-            final_columns = columns_to_show + other_columns
-            st.dataframe(df_logistics_final[final_columns], use_container_width=True)
-        else:
-            st.info("沒有物流紀錄可顯示")
+        st.subheader("🚚 訂單即時物流狀態 (含動態日期)")
+        st.dataframe(df_logistics_final, use_container_width=True)
 
     # --- Tab 3: 文案合規 ---
     with tab3:
-        st.header("🔍 文案合規檢測")
-        cl, cr = st.columns([2, 1])
-        with cr:
-            st.subheader("🛡️ 字庫管理")
-            if os.path.exists("risk_words.txt"):
-                with open("risk_words.txt", "r", encoding="utf-8") as f: words = f.read()
-            else: words = "治癒\n療效\n根治"
-            edited = st.text_area("編輯禁語 (每行一個)", value=words, height=300)
-            if st.button("💾 儲存字庫"):
-                with open("risk_words.txt", "w", encoding="utf-8") as f: f.write(edited)
-                st.success("已儲存"); st.rerun()
-        with cl:
-            st.subheader("📝 內容掃描")
-            text = st.text_area("在此輸入文案...", height=200)
-            if st.button("🚀 開始檢測"):
-                risk_list = [w.strip() for w in edited.split("\n") if w.strip()]
-                found = [w for w in risk_list if w in text]
-                if found: st.error(f"❌ 發現禁語：{', '.join(found)}")
-                else: st.success("✅ 文案合規")
+        st.header("🔍 文案檢測")
+        input_text = st.text_area("貼入文案內容...", height=200)
+        if st.button("🚀 開始檢測"):
+            # 簡化檢測邏輯
+            risks = ["治癒", "療效", "根治", "副作用"]
+            found = [w for w in risks if w in input_text]
+            if found: st.error(f"❌ 發現禁語：{', '.join(found)}")
+            else: st.success("✅ 檢測通過")
